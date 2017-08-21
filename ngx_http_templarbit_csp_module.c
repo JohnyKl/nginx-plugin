@@ -15,8 +15,8 @@
 #include <semaphore.h>
 
 #include "templarbit/http.h"
-#include "templarbit/json.h"
 #include "templarbit/handler.h"
+#include "jansson/src/jansson.h"
 
 static char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf);
 static void * ngx_http_templarbit_csp_srv_conf(ngx_conf_t *cf);
@@ -263,19 +263,25 @@ poll_api(void *arg)
           return NULL;
        }
 
-       struct json_node *json = json_parse(response_body);
+       json_t *json;
+       json_error_t json_error;
+
+       json = json_loads(response_body, 0, &json_error);
+       free(response_body);
+
        if (!json) {
           return NULL;
        }
 
-       struct json_node *csp = json_find_node(json, "csp");
-       struct json_node *csp_ro = json_find_node(json, "csp_report_only");
-       if (!csp || !csp_ro) {
+       json_t *raw_csp = json_object_get(json, "csp"),
+              *raw_csp_ro = json_object_get(json, "csp_report_only");
+
+       if (!json_is_string(raw_csp) || !json_is_string(raw_csp_ro)) {
           return NULL;
        }
 
-       char *new_csp = csp->value;
-       char *new_csp_ro = csp_ro->value;
+       const char *new_csp = json_string_value(raw_csp),
+             *new_csp_ro = json_string_value(raw_csp_ro);
        if (!new_csp || !new_csp_ro) {
           return NULL;
        }
@@ -299,10 +305,10 @@ poll_api(void *arg)
 
           sem_post(handler->csp_semid);
 
-          //printf("New headers: \n\t%s\n\t%s\n", curr_csp, curr_csp_ro);
+          printf("New headers: \n\t%s\n\t%s\n", curr_csp, curr_csp_ro);
        }
 
-       json_free(csp);
+       json_decref(json);
 
        sleep(clsv->fetch_interval);
     }
@@ -345,12 +351,10 @@ char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
     property_id = (char*) clsv->property_id.data;
 
     // preparing request body
-    struct json_node *request_json = NULL;
-    json_append_node_nv(&request_json, "token", token);
-    json_append_node_nv(&request_json, "property_id", property_id);
+    json_t *request = json_pack("{ssss}", "token", token, "property_id", property_id);
 
     handler = handler_append_node_n(&templarbit_handlers, token);
-    handler->request_body = json_serialize(request_json);
+    handler->request_body = json_dumps(request, JSON_COMPACT);
     handler->handler_status = 1;
     handler->clsv = clsv;
 
