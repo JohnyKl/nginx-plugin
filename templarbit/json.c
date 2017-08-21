@@ -33,7 +33,7 @@ struct json_node* json_find_node(struct json_node* root, char* name)
    struct json_node *n = root;
    while (1)
    {
-      if (!strcmp(name, root->name))
+      if (!strcmp(name, n->name))
          return n;
 
       if (!n->next)

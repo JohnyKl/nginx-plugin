@@ -1,15 +1,28 @@
+#include <sys/types.h>
+#include <semaphore.h>
 
-#define CSP_SIZE 10240
+#define CSP_OFFSET sizeof(int)
+#define CSP_HEADER_SIZE 8192
+#define CSP_SIZE CSP_HEADER_SIZE*2+CSP_OFFSET
+
+struct headers
+{
+  int version;
+  char csp[CSP_HEADER_SIZE];
+  char csp_ro[CSP_HEADER_SIZE];
+};
 
 struct handler_node
 {
   char* token;
 
   int csp_shmid;
-  char *csp;
+  sem_t *csp_semid;
+  struct headers *csp_headers;
   
   char* request_body;
   int handler_status;
+
   void *clsv;
   struct handler_node* next;
 };
