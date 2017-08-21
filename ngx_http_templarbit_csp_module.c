@@ -243,13 +243,18 @@ poll_api(void *arg)
 {
     long response_code = 0;
     char* token = arg;
-    struct handler_node *handler;
-    ngx_http_templarbit_csp_srv_conf_t *clsv;
+
+    struct handler_node *handler = handler_find_node(templarbit_handlers, token);
+    ngx_http_templarbit_csp_srv_conf_t *clsv = handler->clsv;
+    ngx_conf_t *clng = handler->clng;
+
+    ngx_conf_log_error(NGX_LOG_INFO, clng, 0, "Templarbit: Successfully started API poller thread for token=%s, property_id=%s",
+            clsv->token.data, clsv->property_id.data);
 
     while (1)
     {
-       handler = handler_find_node(templarbit_handlers, token);
-       clsv = handler->clsv;
+       json_error_t json_error;
+       json_t *root_node = NULL;
 
        // making request to templarbit server
        char* response_body = http_post(
@@ -259,35 +264,47 @@ poll_api(void *arg)
           clsv->fetch_interval,
           clsv->fetch_interval);
 
+       if (!response_body) {
+          ngx_conf_log_error(NGX_LOG_ERR, clng, 0,
+               "Templarbit: No response received from API server. "
+               "Source request: '%s', destination URL: '%s'",
+               handler->request_body, (char*) clsv->api_url.data);
+          goto finalize_request;
+       }
+
        if (response_code != 200) {
-          return NULL;
+          ngx_conf_log_error(NGX_LOG_ERR, clng, 0,
+               "Templarbit: Error received from API server. "
+               "Response code: %d, response body: '%s', source request: '%s', destination URL: '%s'",
+               response_code, response_body, handler->request_body, (char*) clsv->api_url.data);
+          goto finalize_request;
        }
 
-       json_t *json;
-       json_error_t json_error;
-
-       json = json_loads(response_body, 0, &json_error);
-       free(response_body);
-
-       if (!json) {
-          return NULL;
+       root_node = json_loads(response_body, 0, &json_error);
+       if (!root_node) {
+          ngx_conf_log_error(NGX_LOG_ERR, clng, 0,
+                "Templarbit: Invalid JSON received from API server. "
+                "Source request: '%s', response body: '%s'. Error on line %d: %s",
+                handler->request_body, response_body, json_error.line, json_error.text);
+          goto finalize_request;
        }
+       
+       json_t *raw_csp = json_object_get(root_node, "csp"),
+              *raw_csp_ro = json_object_get(root_node, "csp_report_only");
 
-       json_t *raw_csp = json_object_get(json, "csp"),
-              *raw_csp_ro = json_object_get(json, "csp_report_only");
-
-       if (!json_is_string(raw_csp) || !json_is_string(raw_csp_ro)) {
-          return NULL;
+       if (!json_is_string(raw_csp) && !json_is_string(raw_csp_ro)) {
+          ngx_conf_log_error(NGX_LOG_WARN, clng, 0,
+                "Templarbit: Received JSON from API server doesn't have neither "
+                "Content-Security-Policy nor Content-Security-Policy-Report-Only set. "
+                "Source request: '%s', response body: '%s'", handler->request_body, response_body);
+          goto finalize_request;
        }
 
        const char *new_csp = json_string_value(raw_csp),
-             *new_csp_ro = json_string_value(raw_csp_ro);
-       if (!new_csp || !new_csp_ro) {
-          return NULL;
-       }
+                  *new_csp_ro = json_string_value(raw_csp_ro);
 
-       char *curr_csp = handler->csp_headers->csp;
-       char *curr_csp_ro = handler->csp_headers->csp_ro;
+       char *curr_csp = handler->csp_headers->csp,
+            *curr_csp_ro = handler->csp_headers->csp_ro;
 
        if (strcmp(curr_csp, new_csp) // CSP are inequal
            || strcmp(curr_csp_ro, new_csp_ro)) // CSP RO are inequal
@@ -295,21 +312,31 @@ poll_api(void *arg)
           // incrementing version number
           handler->csp_headers->version = handler->csp_headers->version + 1;
 
+          // locking shared memory segment for update operation
           sem_wait(handler->csp_semid);
 
-          memset(curr_csp, 0, CSP_HEADER_SIZE);
-          memset(curr_csp_ro, 0, CSP_HEADER_SIZE);
+          if (new_csp) {
+             memset(curr_csp, 0, CSP_HEADER_SIZE);
+             strcpy(curr_csp, new_csp);
+          }
 
-          strcpy(curr_csp, new_csp);
-          strcpy(curr_csp_ro, new_csp_ro);
+          if (new_csp_ro) {
+             memset(curr_csp_ro, 0, CSP_HEADER_SIZE);
+             strcpy(curr_csp_ro, new_csp_ro);
+          }
 
+          // releasing shared memory segment lock
           sem_post(handler->csp_semid);
 
-          printf("New headers: \n\t%s\n\t%s\n", curr_csp, curr_csp_ro);
+          ngx_conf_log_error(NGX_LOG_INFO, clng, 0,
+             "Templarbit: New headers received. Content-Security-Policy: '%s', Content-Security-Policy-Report-Only: '%s'",
+             curr_csp, curr_csp_ro);
        }
 
-       json_decref(json);
+       finalize_request:
 
+       json_decref(root_node);
+       free(response_body);
        sleep(clsv->fetch_interval);
     }
 
@@ -332,10 +359,13 @@ char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
 {
     ngx_http_templarbit_csp_srv_conf_t *clsv; /* pointer to core server configuration */
     pthread_t poller_thread;                  /* poller thread handler */
+    int thread_status;                        /* poller thread creation status */
     struct handler_node *handler;
 
     char *token = NULL;
     char *property_id = NULL;
+
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Templarbit: Starting server instance configuration");
 
     // reading location and server configs
     clsv = ngx_http_conf_get_module_srv_conf(cf, ngx_http_templarbit_csp_module);
@@ -357,28 +387,38 @@ char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
     handler->request_body = json_dumps(request, JSON_COMPACT);
     handler->handler_status = 1;
     handler->clsv = clsv;
+    handler->clng = cf;
+
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Templarbit: Server instance has token=%s, property_id=%s configured", token, property_id);
 
     // allocating shared memory segment for storing CSP header
     handler->csp_shmid = shmget(IPC_PRIVATE, CSP_SIZE, 0644 | IPC_CREAT);
     if (handler->csp_shmid == -1) {
-        perror("Error initializing shared memory segment");
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Templarbit: Was unable to allocate shared memory segment of %ld size", CSP_SIZE);
         exit(1);
     }
 
     handler->csp_headers = shmat(handler->csp_shmid, (void *)0, 0);
     if ((char*) handler->csp_headers == (char *)(-1)) {
-        perror("Error attaching shared memory segment");
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Templarbit: Was unable to attach shared memory segment");
         exit(1);
     }
 
     // creating semaphore in order to synchronize access to shared memory segment
-    handler->csp_semid = sem_open (token, O_CREAT | O_EXCL, 0644, 1);
+    handler->csp_semid = sem_open(token, O_CREAT | O_EXCL, 0644, 1);
 
     // unlink prevents the semaphore existing forever
-    sem_unlink (token); 
+    sem_unlink(token); 
 
     // starting CSP poller thread
-    pthread_create(&poller_thread, NULL, &poll_api, token);
+    thread_status = pthread_create(&poller_thread, NULL, &poll_api, token);
+    if (thread_status != 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "Templarbit: Was unable to start API poller thread for token=%s, property_id=%s", 
+                     token, property_id);
+        exit(1);
+    }
+
+    ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Templarbit: Server instance configuration finished");
 
     return NGX_CONF_OK;
 }

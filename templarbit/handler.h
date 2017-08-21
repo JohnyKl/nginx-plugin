@@ -24,6 +24,8 @@ struct handler_node
   int handler_status;
 
   void *clsv;
+  void *clng;
+
   struct handler_node* next;
 };
 
