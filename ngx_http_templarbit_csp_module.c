@@ -16,7 +16,7 @@
 
 #include "templarbit/http.h"
 #include "templarbit/handler.h"
-#include "jansson/src/jansson.h"
+#include "vendor/jansson/src/jansson.h"
 
 static char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf);
 static void * ngx_http_templarbit_csp_srv_conf(ngx_conf_t *cf);
