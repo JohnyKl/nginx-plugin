@@ -287,30 +287,29 @@ poll_api(void *arg)
 static
 int poll_api_impl(struct handler_node *handler, char* url, char* request_body, int timeout)
 {
-    long response_code = 0;
     json_error_t json_error;
     json_t *root_node = NULL;
     int result = REQ_OK;
 
-    // making request to templarbit server
-    char* response_body = http_post(
-       url,
-       request_body,
-       &response_code,
-       timeout,
-       timeout);
+    // constructing request struct
+    http_header_t* headers = NULL;
+    header_append_node_n(&headers, "Content-Type: application/json");
+    http_request_t* request = make_http_request(url, request_body, POST, headers, timeout, timeout);
 
-    if (!response_body) {
+    // making request to templarbit server
+    http_response_t* response = http_post(request);
+
+    if (!response || !response->response_body) {
        result = REQ_NO_RESPONSE;
        goto finalize_request;
     }
 
-    if (response_code != 200) {
+    if (response->response_code != 200) {
        result = REQ_FAILED;
        goto finalize_request;
     }
 
-    root_node = json_loads(response_body, 0, &json_error);
+    root_node = json_loads(response->response_body, 0, &json_error);
     if (!root_node) {
        result = REQ_MALFORMED_RESPONSE;
        goto finalize_request;
@@ -358,7 +357,8 @@ int poll_api_impl(struct handler_node *handler, char* url, char* request_body, i
 
     finalize_request:
     json_decref(root_node);
-    free(response_body);
+    free_http_request(request);
+    free_http_response(response);
 
     return result;
 }

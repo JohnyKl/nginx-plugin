@@ -4,70 +4,149 @@
 #include <curl/curl.h>
 #include "http.h"
 
-struct http_response {
-  char *data;
-  size_t size;
-};
-
 static size_t
 http_write_reponse(void *contents, size_t size, size_t nmemb, void *userp)
 {
-  size_t realsize = size * nmemb;
-  struct http_response *response = (struct http_response *)userp;
+   size_t realsize = size * nmemb;
+   http_response_t *response = (http_response_t*) userp;
 
-  response->data = realloc(response->data, response->size + realsize + 1);
-  if (response->data == NULL) {
-     return 0;
-  }
+   response->response_body = realloc(response->response_body, response->response_body_size + realsize + 1);
+   if (response->response_body == NULL) {
+      return 0;
+   }
 
-  memcpy(&(response->data[response->size]), contents, realsize);
-  response->size += realsize;
-  response->data[response->size] = 0;
+   memcpy(&(response->response_body[response->response_body_size]), contents, realsize);
+   response->response_body_size += realsize;
+   response->response_body[response->response_body_size] = 0;
 
-  return realsize;
+   return realsize;
 }
 
-char* http_post(char* url, char* request_body, long* response_code, long connect_timeout, long response_timeout)
+http_request_t* make_http_request(char* url, char* request_body, http_method_t method, http_header_t* headers, unsigned int connect_timeout, unsigned int response_timeout)
+{
+   http_request_t* request = (http_request_t*) calloc(1, sizeof(http_request_t));
+
+   request->url = strdup(url);
+   request->request_body = strdup(request_body);
+   request->method = method;
+   request->headers = headers;
+   request->connect_timeout = connect_timeout;
+   request->response_timeout = response_timeout;
+
+   return request;
+}
+
+void free_http_request(http_request_t* request)
+{
+   free(request->url);
+   free(request->request_body);
+   free_http_headers(request->headers);
+   free(request);
+}
+
+void free_http_response(http_response_t* response)
+{
+   free(response->response_body);
+   free(response);
+}
+
+static int free_http_header(struct list_node* raw_node, void* uptr)
+{
+   http_header_t* node = (http_header_t*) raw_node;
+   free(node->header);
+   free(node);
+
+   return 0;
+}
+
+void free_http_headers(http_header_t* headers)
+{
+   iterate_list((struct list_node*) headers, &free_http_header, NULL);
+}
+
+void header_append_node(http_header_t** root, http_header_t* node) {
+   append_node((struct list_node**) root, (struct list_node*) node);
+}
+
+http_header_t* header_append_node_n(http_header_t** root, char* header)
+{
+   http_header_t* node = calloc(1, sizeof(http_header_t));
+   node->header = strdup(header);
+   node->next = NULL;
+
+   header_append_node(root, node);
+   return node;
+}
+
+static int setup_curl_headers(struct list_node* raw_node, void* curl_slist) {
+   http_header_t* node = (http_header_t*) raw_node;
+
+   struct curl_slist **headers = (struct curl_slist**) curl_slist;
+   *headers = curl_slist_append(*headers, node->header);
+
+   return 0;
+}
+
+http_response_t* http_post(http_request_t* request)
 {
     CURL *curl = curl_easy_init();
-    CURLcode res;
 
     if (curl)
     {
-       struct http_response chunk;
-       chunk.data = malloc(1);
-       chunk.size = 0;
+       http_response_t* response = calloc(1, sizeof(http_response_t));
 
-       curl_easy_setopt(curl, CURLOPT_URL, url);
-       curl_easy_setopt(curl, CURLOPT_POST, 1L);
-       curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request_body);
+       // setting initial buffer size for the reponse
+       // it will be re-allocated upon response retrieval by http_write_reponse function
+       response->response_body = (char *) calloc(1, sizeof(char));
+       response->response_body_size = 0;
+
+       curl_easy_setopt(curl, CURLOPT_URL, request->url);
+
+       switch (request->method)
+       {
+          case GET:
+             curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+          break;
+          case POST:
+             curl_easy_setopt(curl, CURLOPT_POST, 1L);
+             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request->request_body);
+          break;
+       }
+
        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_write_reponse);
-       curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-       curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
+       curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) response);
+       curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-nginx-agent/1.0");
        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-       curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, connect_timeout);
-       curl_easy_setopt(curl, CURLOPT_TIMEOUT, response_timeout);
+       curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, request->connect_timeout);
+       curl_easy_setopt(curl, CURLOPT_TIMEOUT, request->response_timeout);
 
+       // setup curl headers
        struct curl_slist *headers = NULL;
-       headers = curl_slist_append(headers, "Content-Type: application/json");
-       curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+       if (request->headers) {
+          iterate_list((struct list_node*)request->headers, &setup_curl_headers, &headers);
+          curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+       }
 
-       res = curl_easy_perform(curl);
+       // perform request
+       response->curl_code = curl_easy_perform(curl);
 
-       curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, response_code);
+       // get CURL error text
+       if (response->curl_code != CURLE_OK) {
+          response->curl_error = curl_easy_strerror(response->curl_code);
+       }
 
-       if (res != CURLE_OK)
-          fprintf(stderr, "curl_easy_perform() failed: %s\n",
-              curl_easy_strerror(res));
+       // getting HTTP status code
+       curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &(response->response_code));
+
+       if (headers) {
+          curl_slist_free_all(headers);
+       }
 
        curl_easy_cleanup(curl);
 
-       return chunk.data;
+       return response;
     }
-    else
-    {
-       *response_code = -1;
-       return NULL;
-    }
+
+    return NULL;
 }
