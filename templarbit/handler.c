@@ -2,56 +2,22 @@
 #include <string.h>
 #include "handler.h"
 
-struct handler_node* handler_find_node(struct handler_node* root, char* token)
-{
-   if (!root || !token) {
-      return NULL;
-   }
-
-   struct handler_node *n = root;
-   while (1)
-   {
-      if (!strcmp(token, root->token))
-         return n;
-
-      if (!n->next)
-         return NULL;
-
-      n = n->next;
-   }
+static int handler_node_cmpf(struct list_node* raw_node, void* key) {
+   return strcmp((char*) key, ((struct handler_node*) raw_node)->token);
 }
 
-void handler_append_node(struct handler_node** root, struct handler_node* node)
-{
-   if (!node) {
-      return;
-   }
+void handler_append_node(struct handler_node** root, struct handler_node* node) {
+   append_node((struct list_node**) root, (struct list_node*) node);
+}
 
-   if (!*root) {
-      *root = node;
-   }
-   else
-   {
-      struct handler_node *n = *root;
-      while (1)
-      {
-         if (!n->next)
-            break;
-
-          n = n->next;
-      }
-
-      n->next = node;
-   }
-
-   node->next = NULL;
+struct handler_node* handler_find_node(struct handler_node* root, char* token) {
+   return (struct handler_node*) find_node((struct list_node*) root, token, &handler_node_cmpf);
 }
 
 struct handler_node* handler_append_node_n(struct handler_node** root, char* token)
 {
    struct handler_node* node = calloc(1, sizeof(struct handler_node));
    node->token = strdup(token);
-   node->handler_status = 0;
    node->request_body = NULL;
    node->next = NULL;
 
