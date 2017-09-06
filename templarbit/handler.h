@@ -1,3 +1,6 @@
+#ifndef _HANDLER_H_
+#define _HANDLER_H_ 
+
 #include <sys/types.h>
 #include <semaphore.h>
 #include "list.h"
@@ -103,3 +106,5 @@ struct handler_node
 struct handler_node* handler_find_node(struct handler_node* root, char* token);
 void handler_append_node(struct handler_node** root, struct handler_node* node);
 struct handler_node* handler_append_node_n(struct handler_node** root, char* token);
+
+#endif

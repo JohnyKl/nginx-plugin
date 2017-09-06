@@ -1,3 +1,6 @@
+#ifndef _HTTP_H_
+#define _HTTP_H_
+
 #include "list.h"
 
 /**
@@ -97,3 +100,4 @@ void free_http_request(http_request_t* request);
 void free_http_response(http_response_t* response);
 void free_http_headers(http_header_t* headers);
 
+#endif

@@ -1,4 +1,5 @@
-
+#ifndef _REQUEST_H_
+#define _REQUEST_H_
 
 enum
 {
@@ -9,3 +10,5 @@ enum
    REQ_MALFORMED_RESPONSE,
    REQ_INVALID_RESPONSE
 };
+
+#endif

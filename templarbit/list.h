@@ -1,3 +1,6 @@
+#ifndef _LIST_H_
+#define _LIST_H_
+
 /**
  * Generic linked list structure
  */
@@ -36,3 +39,5 @@ void append_node(struct list_node** root, struct list_node* node);
  * @uptr  - arbitrary pointer to pass to user callback function 
  */
 void iterate_list(struct list_node* root, LIST_CALLBACK callback, void* uptr);
+
+#endif
