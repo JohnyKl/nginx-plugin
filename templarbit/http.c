@@ -137,7 +137,7 @@ http_response_t* http_post(http_request_t* request)
        }
 
        // getting HTTP status code
-       curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &(response->response_code));
+       curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE,&(response->response_code));
 
        if (headers) {
           curl_slist_free_all(headers);

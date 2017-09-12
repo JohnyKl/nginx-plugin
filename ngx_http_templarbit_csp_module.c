@@ -14,20 +14,18 @@
 #include <sys/types.h>
 #include <semaphore.h>
 
+#include "templarbit/core.h"
 #include "templarbit/request.h"
 #include "templarbit/http.h"
 #include "templarbit/handler.h"
 #include "vendor/jansson/src/jansson.h"
-
 
 static char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf);
 static void * ngx_http_templarbit_csp_srv_conf(ngx_conf_t *cf);
 static void * ngx_http_templarbit_csp_loc_conf(ngx_conf_t *cf);
 static ngx_int_t ngx_http_templarbit_csp_init(ngx_conf_t *cf);
 static void add_response_header(ngx_http_request_t *r, char* header_name, char* header_value);
-static int process_server_instance(struct handler_node **handlers, char* token, char *property_id, void* server_config);
 static void* poll_api(void *arg);
-static int poll_api_impl(struct handler_node *handler, char* url, char* request_body, int timeout);
 
 static ngx_conf_post_handler_pt ngx_http_templarbit_csp_p = ngx_http_templarbit_csp;
 
@@ -284,85 +282,6 @@ poll_api(void *arg)
     return NULL;
 }
 
-static
-int poll_api_impl(struct handler_node *handler, char* url, char* request_body, int timeout)
-{
-    json_error_t json_error;
-    json_t *root_node = NULL;
-    int result = REQ_OK;
-
-    // constructing request struct
-    http_header_t* headers = NULL;
-    header_append_node_n(&headers, "Content-Type: application/json");
-    http_request_t* request = make_http_request(url, request_body, POST, headers, timeout, timeout);
-
-    // making request to templarbit server
-    http_response_t* response = http_post(request);
-
-    if (!response || !response->response_body) {
-       result = REQ_NO_RESPONSE;
-       goto finalize_request;
-    }
-
-    if (response->response_code != 200) {
-       result = REQ_FAILED;
-       goto finalize_request;
-    }
-
-    root_node = json_loads(response->response_body, 0, &json_error);
-    if (!root_node) {
-       result = REQ_MALFORMED_RESPONSE;
-       goto finalize_request;
-    }
-
-    json_t *raw_csp = json_object_get(root_node, "csp"),
-           *raw_csp_ro = json_object_get(root_node, "csp_report_only");
-
-    if (!json_is_string(raw_csp) && !json_is_string(raw_csp_ro)) {
-       result = REQ_INVALID_RESPONSE;
-       goto finalize_request;
-    }
-
-    const char *new_csp = json_string_value(raw_csp),
-               *new_csp_ro = json_string_value(raw_csp_ro);
-
-    char *curr_csp = handler->csp_headers->csp,
-         *curr_csp_ro = handler->csp_headers->csp_ro;
-
-    if (strcmp(curr_csp, new_csp) // CSP are inequal
-        || strcmp(curr_csp_ro, new_csp_ro)) // CSP RO are inequal
-    {
-       // incrementing version number
-       handler->csp_headers->version = handler->csp_headers->version + 1;
-
-       // locking shared memory segment for update operation
-       sem_wait(handler->csp_semid);
-
-       if (new_csp) {
-          memset(curr_csp, 0, CSP_HEADER_SIZE);
-          strcpy(curr_csp, new_csp);
-       }
-
-       if (new_csp_ro) {
-          memset(curr_csp_ro, 0, CSP_HEADER_SIZE);
-          strcpy(curr_csp_ro, new_csp_ro);
-       }
-
-       // releasing shared memory segment lock
-       sem_post(handler->csp_semid);
-
-       ngx_log_stderr(0, "Templarbit: New headers received. Content-Security-Policy: '%s', Content-Security-Policy-Report-Only: '%s'",
-          new_csp, new_csp_ro);
-    }
-
-    finalize_request:
-    json_decref(root_node);
-    free_http_request(request);
-    free_http_response(response);
-
-    return result;
-}
-
 /**
  * Configuration setup function that installs the content handler.
  *
@@ -395,7 +314,7 @@ char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
        &templarbit_handlers,
        token,
        property_id,
-       clsv);
+       clsv, poll_api);
 
     switch (status)
     {
@@ -417,52 +336,6 @@ char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
     }
 
     return NGX_CONF_OK;
-}
-
-static
-int process_server_instance(struct handler_node **handlers, char* token, char *property_id, void* server_config)
-{
-    pthread_t poller_thread;                  /* poller thread handler */
-    int thread_status;                        /* poller thread creation status */
-    struct handler_node *handler;             /* templarbit server handler node */
-
-    // checking if we have already handler/poller for the specific token
-    handler = handler_find_node(*handlers, token);
-    if (handler) {
-       return HANDLER_EXISTS;
-    }
-
-    // preparing request body
-    json_t *request = json_pack("{ssss}", "token", token, "property_id", property_id);
-
-    handler = handler_append_node_n(handlers, token);
-    handler->request_body = json_dumps(request, JSON_COMPACT);
-    handler->clsv = server_config;
-
-    // allocating shared memory segment for storing CSP header
-    handler->csp_shmid = shmget(IPC_PRIVATE, CSP_SIZE, 0644 | IPC_CREAT);
-    if (handler->csp_shmid == -1) {
-        return HANDLER_SHM_INIT_FAILED;
-    }
-
-    handler->csp_headers = shmat(handler->csp_shmid, (void *)0, 0);
-    if ((char*) handler->csp_headers == (char *)(-1)) {
-        return HANDLER_SHM_ATTACH_FAILED;
-    }
-
-    // creating semaphore in order to synchronize access to shared memory segment
-    handler->csp_semid = sem_open(token, O_CREAT | O_EXCL, 0644, 1);
-
-    // unlink prevents the semaphore existing forever
-    sem_unlink(token); 
-
-    // starting CSP poller thread
-    thread_status = pthread_create(&poller_thread, NULL, &poll_api, token);
-    if (thread_status != 0) {
-        return HANDLER_THREAD_FAILED;
-    }
-
-    return HANDLER_STARTED;
 }
 
 static ngx_int_t
