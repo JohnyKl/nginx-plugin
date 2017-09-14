@@ -2,11 +2,25 @@
 
 ### Additional dependencies
 
-Packages are need to be installed:
+Ubuntu:
 * libjansson-dev
-* libcurl4-dev
+* libcurl4-gnutls-dev
 * libcunit1-dev
 * libboost-all-dev
+
+```bash
+$ apt-get install libjansson-dev libcurl4-gnutls-dev libcunit1-dev libboost-all-dev
+```
+
+CentOS, RHEL, Fedora:
+* boost-devel
+* curl-devel
+* CUnit-devel
+* jansson-devel
+
+```bash
+$ yum install boost-devel curl-devel CUnit-devel jansson-devel
+```
 
 ### Run tests
 
