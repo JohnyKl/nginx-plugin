@@ -66,8 +66,8 @@ elif [[ $OS == *"rhel"* ]]; then
                     autoheader \
                     unzip
 else
-        echo "`red`* Error$NC: current OS is not supported`res`"
-        exit
+        echo "`red`* Error`res`: current OS is not supported"
+        exit 1
 fi
 
 # cleaning up
@@ -124,6 +124,7 @@ if [[ -e "$SO" ]]; then
    file $SO
 else
    echo "`red`* Plugin has not been built. Check build errors above `res`"
+   exit 2
 fi
 
 echo

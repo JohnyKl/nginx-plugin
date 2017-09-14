@@ -1,6 +1,5 @@
 #!/bin/bash 
 
-
 # operating system type
 OS=$(. /etc/os-release; echo "$ID $ID_LIKE")
 
@@ -29,14 +28,20 @@ echo "* Current OS group is: $OS"
 
 echo "`green`* Setting up build dependencies `res`"
 if [[ $OS == *"debian"* ]]; then
-        apt-get update
-	apt-get install libcurl4-gnutls-dev libcunit1-dev libboost-all-dev
+   apt-get update
+   apt-get install libcurl4-gnutls-dev libcunit1-dev libboost-all-dev
 elif [[ $OS == *"rhel"* ]]; then
-	rpm -Uvh http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-10.noarch.rpm
-	yum install boost-devel curl-devel CUnit-devel jansson-devel
+   rpm -Uvh http://dl.fedoraproject.org/pub/epel/7/x86_64/e/epel-release-7-10.noarch.rpm
+   yum install boost-devel curl-devel CUnit-devel jansson-devel
 else
-        echo "`red`* Error$NC: current OS is not supported`res`"
-        exit
+   echo "`red`* Error`res`: current OS is not supported"
+   exit 1
+fi
+
+# checking dependencies
+if [[ -z "`ldconfig -p | grep libjansson`" ]]; then
+   echo "`red`* Error`res`: Before running tests, you must build plugin first by running ../build.sh"
+   exit 2
 fi
 
 # cleaning up
