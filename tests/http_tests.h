@@ -47,9 +47,8 @@ void test_GET_http_post_NULL_headers(void)
 	unsigned int timeout = 5;
 	http_method_t method = http_method_t::GET;
 	http_header_t* headers = NULL;
-	char* requestBody = const_cast<char*>("");
-	char* requestUrl =
-			const_cast<char*>("http://127.0.0.1:8080/test_get_method");
+	char* requestBody = (char*)"";
+	char* requestUrl =(char*)"http://127.0.0.1:8080/test_get_method";
 
 	http_request_t* request = make_http_request(requestUrl, requestBody, method,
 			headers, timeout, timeout);
@@ -71,7 +70,7 @@ void test_GET_http_post_NOT_NULL_headers(void)
 	/* prepare */
 	http_response_t* response = NULL;
 	http_header_t* headers = NULL;
-	header_append_node_n(&headers, "Content-Type: application/json");
+	header_append_node_n(&headers, (char*)"Content-Type: application/json");
 
 	unsigned int timeout = 5;
 	http_method_t method = http_method_t::GET;
@@ -96,7 +95,7 @@ void test_check_request_headers(void)
 	/* prepare */
 	http_response_t* response = NULL;
 	http_header_t* headers = NULL;
-	header_append_node_n(&headers, "Content-Type: application/json");
+	header_append_node_n(&headers, (char*)"Content-Type: application/json");
 
 	unsigned int timeout = 5000;
 	http_method_t method = http_method_t::GET;
@@ -109,8 +108,6 @@ void test_check_request_headers(void)
 
 	/* call function */
 	response = http_post(request);
-
-	printf(response->response_body);
 
 	/*assert*/
 	CU_ASSERT_PTR_NOT_NULL_FATAL(response);

@@ -2,6 +2,7 @@
 #define CBASEHTTPREQUEST_H_
 
 #include <boost/asio.hpp>
+#include <boost/array.hpp>
 #include <boost/asio/read_until.hpp>
 #include <iostream>
 
@@ -169,11 +170,10 @@ string CHttpRequest::decodeSpaces(string str)
 void CHttpRequest::readRequest()
 {
 	boost::asio::streambuf b;
-	boost::asio::read_until(*sock, b, '\r\n\r\n');
-	istream is(&b);
-	std::getline(is, requestStr);
+	boost::system::error_code ec;
 
-	//cout<<requestStr<<endl;
+	boost::asio::read_until(*sock, b, "\r\n\r\n");
+	requestStr = boost::asio::buffer_cast<const char*>(b.data());
 
 	parseMethod();
 	parseRoute();

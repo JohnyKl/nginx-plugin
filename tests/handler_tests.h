@@ -168,7 +168,7 @@ void test_handler_append_node_tail(void)
 void test_handler_append_n_node_head(void)
 {
 	struct handler_node* root = NULL;
-	char* newToken = "newToken";
+	char* newToken = (char*)"newToken";
 
 	struct handler_node* newNode = handler_append_node_n(&root, newToken);
 
@@ -183,8 +183,8 @@ void test_handler_append_n_node_second(void)
 {
 	struct handler_node* root = NULL;
 	struct handler_node newNode1;
-	char* newToken1 = "newToken1";
-	char* newToken2 = "newToken2";
+	char* newToken1 = (char*)"newToken1";
+	char* newToken2 = (char*)"newToken2";
 	memset(&newNode1, 0, sizeof(struct handler_node));
 	newNode1.token = newToken1;
 	root = &newNode1;
