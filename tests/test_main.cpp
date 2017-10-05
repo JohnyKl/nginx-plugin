@@ -123,15 +123,8 @@ int main(void)
 					"test_process_server_instance_shm_init_failed",
 					test_process_server_instance_shm_init_failed) == NULL)
 			|| (CU_add_test(pProcServInstSuite,
-					"test_process_server_instance_shm_attach_failed",
-					test_process_server_instance_shm_attach_failed) == NULL)
-			|| (CU_add_test(pProcServInstSuite,
-					"test_process_server_instance_handle_thread_failed",
-					test_process_server_instance_handle_thread_failed) == NULL)
-			|| (CU_add_test(pProcServInstSuite,
 					"test_process_server_instance_handle_started",
 					test_process_server_instance_handle_started) == NULL))
-
 	{
 		CU_cleanup_registry();
 		return CU_get_error();
