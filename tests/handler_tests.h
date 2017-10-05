@@ -212,8 +212,7 @@ void test_handler_append_n_node_tail(void)
 	struct handler_node* newNode = handler_append_node_n(&root, token);
 
 	CU_ASSERT_PTR_NOT_NULL_FATAL(newNode);
-	CU_ASSERT_PTR_EQUAL(nodeArr[TEST_NODES_ARRAY_NODES_COUNT - 1].next,
-			newNode);
+   CU_ASSERT_PTR_EQUAL(nodeArr[TEST_NODES_ARRAY_NODES_COUNT - 1].next, newNode);
 	CU_ASSERT_STRING_EQUAL(newNode->token, token);
 }
 
@@ -228,7 +227,7 @@ void create_handlers_list(struct handler_node** root,
 		{
 			memset(&handlersArray[i], 0, sizeof(struct handler_node));
 
-			handlersArray[i].csp_shmid = i;
+         //handlersArray[i].csp_shmid = i;
 			handlersArray[i].token = defaultToken;
 
 			append_node((struct list_node**) root,

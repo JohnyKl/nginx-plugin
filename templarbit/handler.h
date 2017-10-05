@@ -94,13 +94,15 @@ struct handler_node
 
   char* token;
 
-  int csp_shmid;
-  sem_t *csp_semid;
   struct headers *csp_headers;
   
   char* request_body;
 
   void *clsv;
+
+  void* shm_zone;
+  void* shm_pool;
+  void* shm;
 };
 
 struct handler_node* handler_find_node(struct handler_node* root, char* token);
