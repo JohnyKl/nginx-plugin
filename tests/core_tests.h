@@ -3,7 +3,6 @@
 
 #include "CUnit/CUnit.h"
 #include "CUnit/Basic.h"
-#include "../templarbit/request.h"
 #include "../templarbit/core.h"
 
 #include <curl/curl.h>
@@ -41,8 +40,10 @@ void test_post_handle_500_error(void)
 
 	char* requestStr = const_cast<char*>("");
 	char* requestUrl = const_cast<char*>("http://127.0.0.1:8080/test_500");
+        char* responseStr = NULL;
+        int responseCode;
 
-	result = poll_api_impl(NULL, requestUrl, requestStr, 5);
+	result = poll_api_impl(NULL, requestUrl, requestStr, 5, &responseStr, &responseCode);
 
 	/* Assert */
 	CU_ASSERT_EQUAL(result, REQ_FAILED);
@@ -54,8 +55,10 @@ void test_post_handle_broken_json(void)
 
 	char* requestStr = const_cast<char*>("");
 	char* requestUrl = const_cast<char*>("http://127.0.0.1:8080/test_bad_json");
+        char* responseStr = NULL;
+        int responseCode;
 
-	result = poll_api_impl(NULL, requestUrl, requestStr, 5);
+	result = poll_api_impl(NULL, requestUrl, requestStr, 5, &responseStr, &responseCode);
 	/* Assert */
 	CU_ASSERT_EQUAL(result, REQ_MALFORMED_RESPONSE);
 }
@@ -66,8 +69,10 @@ void test_post_handle_no_csp_and_no_csp_ro(void)
 
 	char* requestStr = const_cast<char*>("");
 	char* requestUrl = const_cast<char*>("http://127.0.0.1:8080/test_no_csp");
+        char* responseStr = NULL;
+        int responseCode;
 
-	result = poll_api_impl(NULL, requestUrl, requestStr, 5);
+	result = poll_api_impl(NULL, requestUrl, requestStr, 5, &responseStr, &responseCode);
 
 	/* Assert */
 	CU_ASSERT_EQUAL(result, REQ_INVALID_RESPONSE);
@@ -79,8 +84,10 @@ void test_post_handle_timeout(void)
 
 	char* requestStr = const_cast<char*>("");
 	char* requestUrl = const_cast<char*>("http://127.0.0.1:8080/test_timeout");
+        char* responseStr = NULL;
+        int responseCode;
 
-	result = poll_api_impl(NULL, requestUrl, requestStr, 5);
+	result = poll_api_impl(NULL, requestUrl, requestStr, 5, &responseStr, &responseCode);
 
 	/* Assert */
 	CU_ASSERT_EQUAL(result, REQ_NO_RESPONSE);
@@ -121,13 +128,13 @@ void test_process_server_instance_handle_started(void)
 	char* token = (char*) "token";
 	char* propertyId = (char*) "1";
 	void* serverConfig = NULL;
-   shmgetReturnValue = &mock_shm_zone;
+
+	shmgetReturnValue = &mock_shm_zone;
 	shmatReturnValue = 0;
 	pthreadCreateReturnValue = 0;
 	threadFunctionArgs = NULL;
 
-   int result = process_server_instance(-1, &handlers, token, propertyId,
-         serverConfig, NULL);
+	int result = process_server_instance(-1, &handlers, token, propertyId, serverConfig, NULL);
 	struct handler_node* newHandler = handler_find_node(handlers, token);
 
 	CU_ASSERT_EQUAL(result, HANDLER_STARTED);

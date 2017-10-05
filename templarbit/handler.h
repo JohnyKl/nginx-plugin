@@ -92,21 +92,71 @@ struct handler_node
    */
   struct handler_node* next;
 
+  /**
+   * Token to identify uniqueness of handler (property_id is used for this purpose)
+   */
   char* token;
 
+  /**
+   * Pointer to struct headers
+   */
   struct headers *csp_headers;
-  
+ 
+  /**
+   * Cached request body to send to templarbit server 
+   * for gettting CSP headers
+   */ 
   char* request_body;
 
+  /** 
+   * Pointer to ngx_http_templarbit_csp_srv_conf_t
+   */
   void *clsv;
 
+  /**
+   * Nginx shared memory zone pointer
+   */
   void* shm_zone;
+
+  /**
+   * Nginx shared memory pool pointer
+   */
   void* shm_pool;
+
+  /**
+   * Shared memory data block pointer
+   */
   void* shm;
 };
 
+/**
+ * Locates handler node by given token
+ *
+ * @param root root node of the linked list, may be NULL, in this case new list will get created
+ * @param token unique handler identifier
+ *
+ * @return
+ */
 struct handler_node* handler_find_node(struct handler_node* root, char* token);
+
+/**
+ * Appends given handler node to the list
+ *
+ * @param root root node of the linked list, may be NULL, in this case new list will get created
+ * @param token unique handler identifier
+ *
+ * @return
+ */
 void handler_append_node(struct handler_node** root, struct handler_node* node);
+
+/**
+ * Appends given handler node to the list by given token
+ *
+ * @param root root node of the linked list, may be NULL, in this case new list will get created
+ * @param token unique handler identifier
+ *
+ * @return
+ */
 struct handler_node* handler_append_node_n(struct handler_node** root, char* token);
 
 #endif

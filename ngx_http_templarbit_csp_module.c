@@ -15,7 +15,6 @@
 #include <semaphore.h>
 
 #include "templarbit/core.h"
-#include "templarbit/request.h"
 #include "templarbit/http.h"
 #include "templarbit/handler.h"
 #include "vendor/jansson/src/jansson.h"
@@ -23,11 +22,10 @@
 ngx_conf_t *glob_cf = NULL;
 
 static char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf);
-static void * ngx_http_templarbit_csp_srv_conf(ngx_conf_t *cf);
-static void * ngx_http_templarbit_csp_loc_conf(ngx_conf_t *cf);
+static void *ngx_http_templarbit_csp_srv_conf(ngx_conf_t *cf);
+static void *ngx_http_templarbit_csp_loc_conf(ngx_conf_t *cf);
 static ngx_int_t ngx_http_templarbit_csp_init(ngx_conf_t *cf);
-static void add_response_header(ngx_http_request_t *r, char* header_name,
-      char* header_value);
+static void add_response_header(ngx_http_request_t *r, char* header_name, char* header_value);
 static void* poll_api(void *arg);
 static void run_poll_api_threads();
 
@@ -39,8 +37,7 @@ static ngx_conf_post_handler_pt ngx_http_templarbit_csp_p =
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
 
 static struct handler_node *templarbit_handlers;
-pthread_mutex_t templarbit_handlers_mutex = PTHREAD_MUTEX_INITIALIZER
-;
+pthread_mutex_t templarbit_handlers_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct
 {
@@ -176,17 +173,17 @@ ngx_module_t ngx_http_templarbit_csp_module =
 };
 
 /**
- * Content handler.
+ * Custom templarbit header filter
+ * Adds custom headers (Content-Security-Policy, Content-Security-Policy-Report-Only) based on API response
  *
- * @param r
- *   Pointer to the request structure. See http_request.h.
- * @return
- *   The status of the response generation.
+ * @param r Pointer to the request structure. See http_request.h.
+ * @return The status of the response generation.
  */
 static ngx_int_t ngx_http_templarbit_csp_handler(ngx_http_request_t *r)
 {
-   ngx_http_templarbit_csp_loc_conf_t *clcf;
-   ngx_http_templarbit_csp_srv_conf_t *clsv;
+   ngx_http_templarbit_csp_loc_conf_t *clcf; /* location configuration */
+   ngx_http_templarbit_csp_srv_conf_t *clsv; /* server configuration */
+
    struct handler_node *handler;
 
    clcf = ngx_http_get_module_loc_conf(r, ngx_http_templarbit_csp_module);
@@ -200,15 +197,13 @@ static ngx_int_t ngx_http_templarbit_csp_handler(ngx_http_request_t *r)
       return ngx_http_next_header_filter(r);
    }
 
-   // attaching shared memory segment upin first request processing
-   if (!handler->csp_headers)
-   {
+   // attaching shared memory segment upon first request processing
+   if (!handler->csp_headers) {
       sleep(1);
    }
 
    //fetching headers if version changed
-   int cached_version = clsv->headers.version, actual_version = handler
-         ->csp_headers->version;
+   int cached_version = clsv->headers.version, actual_version = handler->csp_headers->version;
 
    if (cached_version != actual_version)
    {
@@ -239,33 +234,45 @@ static ngx_int_t ngx_http_templarbit_csp_handler(ngx_http_request_t *r)
    return ngx_http_next_header_filter(r);
 }
 
+/**
+ * Starts polling for all tokens/property_ids. This function should run only once, which is achieved
+ * by using has_executed static variable
+ */ 
 static void run_poll_api_threads()
 {
-   static int disabled = 0;
+   static int has_executed = 0;
 
-   if (disabled) return;
+   if (has_executed)
+   {
+      return;
+   }
 
-   disabled = 1;
-
+   // Traversing all handlers and running threads for each
    struct handler_node *current = templarbit_handlers;
-
    while (current != NULL)
    {
       pthread_t poller_thread;
-      int thread_status = pthread_create(&poller_thread, NULL, poll_api,
-            (void*) current->token);
+      int thread_status = pthread_create(&poller_thread, NULL, poll_api, (void*) current->token);
 
       if (thread_status != 0)
       {
-         ngx_log_stderr(0, "pthread_create failed!");
+         ngx_log_stderr(0, "Was unable to create thread for handler %s/%s", current->token);
       }
 
       current = current->next;
    }
+
+   has_executed = 1;
 }
 
-static void add_response_header(ngx_http_request_t *r, char* header_name,
-      char* header_value)
+/**
+ * Adds response header to a response for a given nginx request represented by pointer to ngx_http_request_t
+ *
+ * @param r nginx request for which response header should be injected
+ * @param header_name name of header to inject
+ * @param header_value value of header to inject
+ */
+static void add_response_header(ngx_http_request_t *r, char* header_name, char* header_value)
 {
    ngx_table_elt_t *h;
 
@@ -288,19 +295,24 @@ static void add_response_header(ngx_http_request_t *r, char* header_name,
    ngx_str_t key =
    {
       (size_t) strlen(header_name),
-      (unsigned char *) header_name };
+      (unsigned char *) header_name
+   };
+
    ngx_str_t value =
    {
       (size_t) strlen(header_value),
-      (unsigned char *) header_value };
+      (unsigned char *) header_value
+   };
 
    h->key = key;
    h->value = value;
    h->hash = 1;
 }
 
-static void*
-poll_api(void *arg)
+/**
+ * Starts templarbit API polling process per specific token/property_id
+ */
+static void* poll_api(void *arg)
 {
    char* token = arg;
    struct handler_node *handler = handler_find_node(templarbit_handlers, token);
@@ -319,8 +331,11 @@ poll_api(void *arg)
 
    while (1)
    {
+      char* response_body = NULL;
+      int response_code;
+
       int result = poll_api_impl(handler, (char*) clsv->api_url.data,
-            handler->request_body, clsv->fetch_interval);
+            handler->request_body, clsv->fetch_interval, &response_body, &response_code);
 
       switch (result)
       {
@@ -331,20 +346,21 @@ poll_api(void *arg)
          case REQ_FAILED:
             ngx_log_stderr(0,
                   "Templarbit: Error received from API server. Response code: %d, response body: '%s', source request: '%s', destination URL: '%s'",
-                  /*response_code, response_body*/0, "", handler->request_body,
+                  response_code, (response_body) ? response_body : "", handler->request_body,
                   (char*) clsv->api_url.data);
          case REQ_MALFORMED_RESPONSE:
             ngx_log_stderr(0,
-                  "Templarbit: Invalid JSON received from API server. Source request: '%s', response body: '%s'. Error on line %d: %s",
-                  handler->request_body, /*response_body*/"", /*json_error.line, json_error.text*/
-                  0, "");
+                  "Templarbit: Invalid JSON received from API server. Source request: '%s', response body: '%s'.",
+                  handler->request_body, (response_body) ? response_body : "");
          case REQ_INVALID_RESPONSE:
             ngx_log_stderr(0,
                   "Templarbit: Received JSON from API server doesn't have neither "
                         "Content-Security-Policy nor Content-Security-Policy-Report-Only set. "
                         "Source request: '%s', response body: '%s'",
-                  handler->request_body, /*response_body*/"");
+                  handler->request_body, (response_body) ? response_body : "");
       }
+
+      free(response_body);
       sleep(clsv->fetch_interval);
    }
 
@@ -355,14 +371,10 @@ poll_api(void *arg)
 /**
  * Configuration setup function that installs the content handler.
  *
- * @param cf
- *   Module configuration structure pointer.
- * @param cmd
- *   Module directives structure pointer.
- * @param conf
- *   Module configuration structure pointer.
- * @return string
- *   Status of the configuration setup.
+ * @param cf Module configuration structure pointer.
+ * @param cmd Module directives structure pointer.
+ * @param conf Module configuration structure pointer.
+ * @return Status of the configuration setup.
  */
 char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
 {
@@ -370,6 +382,7 @@ char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
    char *token = NULL;
    char *property_id = NULL;
    glob_cf = cf;
+
    ngx_log_stderr(0, "Templarbit: Starting server instance configuration");
 
    // reading location and server configs
@@ -412,6 +425,9 @@ char *ngx_http_templarbit_csp(ngx_conf_t *cf, void *cmd, void *conf)
    return NGX_CONF_OK;
 }
 
+/**
+ * Sets custom templarbit header filter 
+ */ 
 static ngx_int_t ngx_http_templarbit_csp_init(ngx_conf_t *cf)
 {
    ngx_http_next_header_filter = ngx_http_top_header_filter;

@@ -1,5 +1,4 @@
 #include "core.h"
-#include "request.h"
 #include "http.h"
 #include "handler.h"
 #include "../vendor/jansson/src/jansson.h"
@@ -25,6 +24,9 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+/**
+ * Shared memory zone ctor
+ */ 
 static ngx_int_t ngx_init_zone(ngx_shm_zone_t *shm_zone, void *data);
 
 #else
@@ -53,8 +55,7 @@ typedef char* ngx_str_t;
 
 #endif
 
-int poll_api_impl(struct handler_node *handler, char* url, char* request_body,
-      int timeout)
+int poll_api_impl(struct handler_node *handler, char* url, char* request_body, int timeout, char** response_body, int* response_code)
 {
    json_error_t json_error;
    json_t *root_node = NULL;
@@ -66,7 +67,6 @@ int poll_api_impl(struct handler_node *handler, char* url, char* request_body,
    int csp_ro_not_equals = 0;
 
    // constructing request struct
-
    http_header_t* headers = NULL;
    header_append_node_n(&headers, "Content-Type: application/json");
    http_request_t* request = make_http_request(url, request_body, POST, headers,
@@ -75,11 +75,17 @@ int poll_api_impl(struct handler_node *handler, char* url, char* request_body,
    // making request to templarbit server
    http_response_t* response = http_post(request);
 
+   *response_code = response->response_code;
+
    if (!response || !response->response_body
          || response->curl_code == CURLE_OPERATION_TIMEDOUT)
    {
       result = REQ_NO_RESPONSE;
       goto finalize_request;
+   } 
+   else
+   {
+      *response_body = strdup(response->response_body); 
    }
 
    if (response->response_code != 200)
@@ -109,8 +115,7 @@ int poll_api_impl(struct handler_node *handler, char* url, char* request_body,
 
    while (!handler->csp_headers)
    {
-      handler->csp_headers = *((struct headers**) ((ngx_shm_zone_t *) handler
-            ->shm_zone)->data);
+      handler->csp_headers = *((struct headers**) ((ngx_shm_zone_t *) handler->shm_zone)->data);
       sleep(timeout);
    }
 
@@ -149,7 +154,8 @@ int poll_api_impl(struct handler_node *handler, char* url, char* request_body,
             (new_csp ? new_csp : ""), (new_csp_ro ? new_csp_ro : ""));
    }
 
-   finalize_request: json_decref(root_node);
+   finalize_request:
+   json_decref(root_node);
    free_http_request(request);
    free_http_response(response);
 
@@ -173,8 +179,9 @@ int process_server_instance(void *cf, struct handler_node **handlers,
    }
 
    // preparing request body
-   json_t *request = json_pack("{ssss}", "token", token, "property_id",
-         property_id);
+   json_t *request = json_pack("{ssss}",
+              "token", token,
+              "property_id", property_id);
 
    handler = handler_append_node_n(handlers, token);
    handler->request_body = json_dumps(request, JSON_COMPACT);
@@ -182,16 +189,14 @@ int process_server_instance(void *cf, struct handler_node **handlers,
    handler->csp_headers = NULL;
 
    // allocating shared memory segment for storing CSP header
-   /* add an entry for CSP_SIZE shared zone */
    int size = (CSP_SIZE) * 4;
-   handler->shm_zone = ngx_shared_memory_add(cf, &name, size, // + sizeof(ngx_slab_pool_t),
-         ngx_http_templarbit_csp_module);
+   handler->shm_zone = ngx_shared_memory_add(cf, &name, size, ngx_http_templarbit_csp_module);
    if (handler->shm_zone == NULL)
    {
       return HANDLER_SHM_INIT_FAILED;
    }
 
-   /* register init callback and context */
+   // registerng shared memory ctor callback and context
    ((ngx_shm_zone_t *) handler->shm_zone)->init = ngx_init_zone;
    ((ngx_shm_zone_t *) handler->shm_zone)->data = &handler->csp_headers;
    handler->shm = &((ngx_shm_zone_t *) handler->shm_zone)->shm;
