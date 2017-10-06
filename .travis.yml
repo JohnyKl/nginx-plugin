@@ -10,4 +10,4 @@ notifications:
 before_install:
   - sudo apt-get install libjansson-dev
 script: 
-  - ./build.sh 1.11.1
+  - sudo ./build.sh 1.11.1
