@@ -1,6 +1,6 @@
 # nginx-plugin
 
-[![Build Status](https://travis-ci.org/JohnyKl/nginx-plugin.svg?branch=master)](https://travis-ci.org/JohnyKl/nginx-plugin)
+[![Build Status](https://travis-ci.org/JohnyKl/nginx-plugin.svg?branch=feature%2Funit-tests)](https://travis-ci.org/JohnyKl/nginx-plugin)
 
 ## Usage
 
