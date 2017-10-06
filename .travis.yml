@@ -4,6 +4,10 @@ dist: trusty
 os: linux
 compiler:
   - gcc
+notifications:
+  email: false
   
+before_install:
+  - sudo apt-get install libjansson-dev
 script: 
   - ./build.sh 1.11.1
