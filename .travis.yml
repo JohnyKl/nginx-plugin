@@ -9,3 +9,4 @@ notifications:
   
 script: 
   - sudo ./build.sh 1.11.1
+  - test -e ./vendor/nginx/objs/ngx_http_templarbit_csp_module.so
