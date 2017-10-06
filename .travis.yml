@@ -7,7 +7,5 @@ compiler:
 notifications:
   email: false
   
-before_install:
-  - sudo apt-get install libjansson-dev
 script: 
   - sudo ./build.sh 1.11.1
