@@ -1,0 +1,3 @@
+language: c
+sudo: enabled
+script: ./build.sh 1.11.1
