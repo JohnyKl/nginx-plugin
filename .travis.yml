@@ -1,3 +1,9 @@
 language: c
-sudo: enabled
-script: tests/test.sh
+sudo: required
+dist: trusty
+os: linux
+compiler:
+  - gcc
+  
+script: 
+  - ./build.sh 1.11.1
